@@ -1,10 +1,10 @@
 /*+===================================================================
   File:      SyscallDumper.cpp
   Summary:   Given an ntdll.dll file in the local directory, dump the
-			 names and RVAs of all exports
+             names and RVAs of all exports
 
-  Origin:    Inspired by information security research dependence on
-			 j00ru's Syscall Tables
+  Origin:    Inspired by information security research dependence on 
+             j00ru's Syscall Tables
 
 // References:
 //  https://resources.infosecinstitute.com/the-export-directory/
@@ -27,79 +27,79 @@ BOOL is_syscall(LPCVOID pFunction);
 // Entry Point
 int main(int argc, char *argv[])
 {
-	DWORD status;
+    DWORD status;
 
-	// Load ntdll_handle
-	HMODULE ntdll_handle = LoadLibraryEx(L"C:\\Windows\\System32\\ntdll.dll", NULL, LOAD_LIBRARY_AS_DATAFILE);
-	if (!ntdll_handle) {
-		status = GetLastError();
-		std::cout << "Error: " << status;
-		return status;
-	}
+    // Load ntdll_handle
+    HMODULE ntdll_handle = LoadLibraryEx(L"C:\\Windows\\System32\\ntdll.dll", NULL, LOAD_LIBRARY_AS_DATAFILE);
+    if (!ntdll_handle) {
+        status = GetLastError();
+        std::cout << "Error: " << status;
+        return status;
+    }
 
-	// Extract the dos header
-	auto dos_header = reinterpret_cast<PIMAGE_DOS_HEADER>(ntdll_handle);
-	assert(dos_header->e_magic == IMAGE_DOS_SIGNATURE);
+    // Extract the dos header
+    auto dos_header = reinterpret_cast<PIMAGE_DOS_HEADER>(ntdll_handle);
+    assert(dos_header->e_magic == IMAGE_DOS_SIGNATURE);
 
-	// Extract the nt header
-	auto nt_header = reinterpret_cast<PIMAGE_NT_HEADERS>(
-		reinterpret_cast<BYTE*>(ntdll_handle) + reinterpret_cast<PIMAGE_DOS_HEADER>(ntdll_handle)->e_lfanew);
+    // Extract the nt header
+    auto nt_header = reinterpret_cast<PIMAGE_NT_HEADERS>(
+        reinterpret_cast<BYTE*>(ntdll_handle) + reinterpret_cast<PIMAGE_DOS_HEADER>(ntdll_handle)->e_lfanew);
 
-	// Extract the export directory
-	auto exports = reinterpret_cast<PIMAGE_EXPORT_DIRECTORY>((BYTE*)ntdll_handle + nt_header->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
-	assert(exports->AddressOfNames != 0);
+    // Extract the export directory
+    auto exports = reinterpret_cast<PIMAGE_EXPORT_DIRECTORY>((BYTE*)ntdll_handle + nt_header->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+    assert(exports->AddressOfNames != 0);
 
-	// Set variables for export directory members
-	auto addr = reinterpret_cast<PDWORD>((reinterpret_cast<LPBYTE>(ntdll_handle) + exports->AddressOfFunctions));
-	auto name = reinterpret_cast<PDWORD>((reinterpret_cast<LPBYTE>(ntdll_handle) + exports->AddressOfNames));
-	auto ord = reinterpret_cast<PWORD>((reinterpret_cast<LPBYTE>(ntdll_handle) + exports->AddressOfNameOrdinals));
+    // Set variables for export directory members
+    auto addr = reinterpret_cast<PDWORD>((reinterpret_cast<LPBYTE>(ntdll_handle) + exports->AddressOfFunctions));
+    auto name = reinterpret_cast<PDWORD>((reinterpret_cast<LPBYTE>(ntdll_handle) + exports->AddressOfNames));
+    auto ord = reinterpret_cast<PWORD>((reinterpret_cast<LPBYTE>(ntdll_handle) + exports->AddressOfNameOrdinals));
 
-	// Print column headers
-	std::cout << std::left
-		<< std::setw(10) << "ordinal"
-		<< std::setw(10) << "RVA"
-		<< std::setw(10) << "number"
-		<< "name\n" << std::endl;
+    // Print column headers
+    std::cout << std::left
+        << std::setw(10) << "ordinal"
+        << std::setw(10) << "RVA"
+        << std::setw(10) << "number"
+        << "name\n" << std::endl;
 
-	// Loop over exports
-	for (uint64_t i = 0; i < exports->NumberOfFunctions; i++) {
-		// Get the pointer to the function
-		PVOID function_addr = reinterpret_cast<PVOID>(
-			reinterpret_cast<LPBYTE>(ntdll_handle) + addr[ord[i]]);
+    // Loop over exports
+    for (uint64_t i = 0; i < exports->NumberOfFunctions; i++) {
+        // Get the pointer to the function
+        PVOID function_addr = reinterpret_cast<PVOID>(
+            reinterpret_cast<LPBYTE>(ntdll_handle) + addr[ord[i]]);
 
-		// Identify "Nt" family functions
-		if (is_syscall(function_addr)) {
-			// Continue if not Zw
-			std::string funcname = (char*)ntdll_handle + name[i];
-			if (strncmp(funcname.c_str(), (char*)"Nt", 2)) continue;
+        // Identify "Nt" family functions
+        if (is_syscall(function_addr)) {
+            // Continue if not Zw
+            std::string funcname = (char*)ntdll_handle + name[i];
+            if (strncmp(funcname.c_str(), (char*)"Nt", 2)) continue;
 
-			// Calculate its RVA
-			auto rva = (uint64_t)function_addr - nt_header->OptionalHeader.ImageBase;
+            // Calculate its RVA
+            auto rva = (uint64_t)function_addr - nt_header->OptionalHeader.ImageBase;
 
-			// Retrieve the syscall code number from the raw bytes
-			auto objectcode = *(uintptr_t*)function_addr;
-			auto syscallcode = (objectcode >> 8 * 4) & 0xfff;
+            // Retrieve the syscall code number from the raw bytes
+            auto objectcode = *(uintptr_t*)function_addr;
+            auto syscallcode = (objectcode >> 8 * 4) & 0xfff;
+                               
+            // Print the function's information
+            std::cout << std::left
+                << std::setw(10) << std::dec << i
+                << std::setw(10) << std::hex << rva
+                << std::setw(10) << std::hex << syscallcode
+                << funcname << std::endl;   
+        }
+    }
 
-			// Print the function's information
-			std::cout << std::left
-				<< std::setw(10) << std::dec << i
-				<< std::setw(10) << std::hex << rva
-				<< std::setw(10) << std::hex << syscallcode
-				<< funcname << std::endl;
-		}
-	}
-
-	return ERROR_SUCCESS;
+    return ERROR_SUCCESS;
 }
 
 // Check the first four bytes of the function for operations indicating a syscall
-BOOL is_syscall(LPCVOID pFunction) {
-	LPCBYTE lpBytePtr = (LPCBYTE)pFunction;
+BOOL is_syscall(LPCVOID function_pointer) {
+    LPCBYTE byte_pointer = (LPCBYTE)function_pointer;
 
-	if (lpBytePtr[0] == 0x4C &&
-		lpBytePtr[1] == 0x8B &&
-		lpBytePtr[2] == 0xD1 &&
-		lpBytePtr[3] == 0xB8) return TRUE;
+    if (byte_pointer[0] == 0x4C &&
+        byte_pointer[1] == 0x8B &&
+        byte_pointer[2] == 0xD1 &&
+        byte_pointer[3] == 0xB8) return TRUE;
 
-	return FALSE;
+    return FALSE;
 }
